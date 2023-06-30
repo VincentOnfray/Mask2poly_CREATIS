@@ -3,45 +3,44 @@ import cv2 as cv
 import matplotlib.pyplot as plt
 import shapely as sh
 from collections import defaultdict
-import imageio.v3 as imio
 
-def mask_to_polygons(mask, first_threshold, second_threshold, min_area=10.):
-    border = 1
-    """Convert a mask ndarray (binarized image) to Multipolygons"""
-    # first, find contours with cv2: it's much faster than shapely
-    #mask = cv.copyMakeBorder(mask,border,border,border,border,cv.BORDER_CONSTANT,value=255)
+"""Conversion d'un masque binaire en multypolygon
+    mask: le mask à convertir
+    min_area: le nombre de pixels minimums pour qu'une forme soit retenue
+    displayIntermediateSteps: Afficher les contours obtenus, utile pour débugger
+
+    NOTE:
+    - Fonctionne sur différentes formes, y compris les formes avec des "trous" dedans
+    - Fonctionne sur les formes qui touchent le bord de l'image MAIS supprime 1 pixel d'épaisseur sur le bord de l'image
+"""
+def mask_to_polygons(mask, min_area=10., displayIntermediateSteps = False):
+
+    mask = cv.cvtColor(mask, cv.COLOR_RGB2GRAY)
+
+    border = 1 #Taille de la bordure de l'image
+    emptyImg = np.ones((mask.shape[0]-border*2,mask.shape[1]-border*2,1), np.uint8) # Cadre vide
+    emptyBorderedImg = cv.copyMakeBorder(emptyImg,border,border,border,border,cv.BORDER_CONSTANT,value=255) #cadre vide avec une border de pixels de valeur 255
     
-    emptyImg = np.ones((mask.shape[0]-border*2,mask.shape[1]-border*2,1), np.uint8)
-    emptyBorderedImg = cv.copyMakeBorder(emptyImg,border,border,border,border,cv.BORDER_CONSTANT,value=255)
-    cv.imshow("emptyBordered",emptyBorderedImg)
-    print("shape of emptyBordered:" +str(emptyBorderedImg.shape[0])+" "+str(emptyBorderedImg.shape[1]))
+    temp = cv.bitwise_and(mask,emptyBorderedImg) # Boolean And entre notre image à etudier et l'image vide avec bordure
+    temp = cv.bitwise_not(temp) # Inversion
 
-    temp = cv.bitwise_and(mask,emptyBorderedImg)
-    temp = cv.bitwise_not(temp)
+    mask = cv.min(temp,mask) #Minimum entre temp et mask
 
-    mask = cv.min(temp,mask)
-
-
-    cv.waitKey(0)
-    cv.imshow("Bordered",mask)
-    #print("Bordered: "+mask.shape.x)
-    #mask = cv.Canny(mask, first_threshold, second_threshold)
+    if(displayIntermediateSteps):
+        print("[Bordered image]")
+        plt.imshow(mask)
+    
     kernel = np.ones((3,3),np.uint8)
     erodedMask = cv.erode(mask,kernel)
     mask = cv.bitwise_xor(mask,erodedMask)
-    cv.imshow("edged",mask)
-    #cv.imwrite("edged.png",mask)
-    #print("edged: "+mask.shape.x)
-    #cv.waitKey(0)
-
-
     
-    cv.waitKey(0)
+
     contours, hierarchy = cv.findContours(mask,
                                   cv.RETR_CCOMP,
                                   cv.CHAIN_APPROX_NONE)
     if not contours:
         return sh.MultiPolygon()
+    
     # now messy stuff to associate parent and child contours
     cnt_children = defaultdict(list)
     child_contours = set()
@@ -64,14 +63,23 @@ def mask_to_polygons(mask, first_threshold, second_threshold, min_area=10.):
     all_polygons = sh.MultiPolygon(all_polygons)
     return all_polygons
 
+
+
+###############################################################################################################
+'''
+Transforme un array Multipolygon en mask binaire
+    polygons: l'array Multypolygon à exploiter
+    im_size:taille de l'image à créer
+
+    NOTE:
+    - Fonctionne sur différentes formes, y compris les formes avec des "trous" dedans
+    - Fonctionne sur les formes qui touchent le bord de l'image MAIS supprime 1 pixel d'épaisseur sur le bord de l'image
+'''
 def Polygons_To_Mask(polygons, im_size):
-    """Convert a polygon or multipolygon list back to
-       an image mask ndarray"""
+    
     img_mask = np.zeros(im_size, np.uint8)
     if not polygons:
         return img_mask
-    
-    
     int_coords = lambda x: np.array(x).round().astype(np.int32)
     exteriors = [int_coords(poly.exterior.coords) for poly in polygons]
     interiors = [int_coords(pi.coords) for poly in polygons
@@ -80,30 +88,10 @@ def Polygons_To_Mask(polygons, im_size):
     #cv.fillPoly(img_mask, interiors, 150)
     return img_mask
 
-#LOAD original
-im = cv.imread('Sample_3.png')
-cv.imshow("Original",im)
-assert im is not None, "file could not be read, check with os.path.exists()"
-
-#PREPARE image to find contours
-imgray = cv.cvtColor(im, cv.COLOR_RGB2GRAY)
-#cv.imshow("gray",imgray)
 
 
-# FIND edges
 
 
-#CONVERT edges to polygons
-polys = mask_to_polygons(imgray,1,250)
-print("Nb de polygones "+str(len(polys.geoms)))
-
-#CONVERT the polygons back to a mask image to validate that all went well
-mask = Polygons_To_Mask(polys.geoms, imgray.shape[:2])
-
-#cv.waitKey(0)
-cv.imshow("final mask",mask)
-cv.imwrite("Result.png",mask)
-cv.waitKey(0)
 
 
 
